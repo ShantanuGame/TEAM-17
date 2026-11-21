@@ -1,0 +1,181 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Six-way shuttle warehouse 3D</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#e9ecef;--pn:#fff;--tx:#1b1f24;--mu:#5d6772;--bd:#d3d8de;--ok:#13794a;--wr:#c0392b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#14181d;--pn:#1c222a;--tx:#e8ebef;--mu:#9aa4b2;--bd:#2d353f;--ok:#4cc582;--wr:#ff7a6b}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#14181d;--pn:#1c222a;--tx:#e8ebef;--mu:#9aa4b2;--bd:#2d353f;--ok:#4cc582;--wr:#ff7a6b}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:13px/1.35 "Segoe UI",system-ui,sans-serif;display:grid;grid-template-columns:320px 1fr}
+#side{overflow:auto;background:var(--pn);border-right:1px solid var(--bd);padding:8px 12px;height:100%}
+h1{font:600 15px/1.2 Georgia,serif;margin:6px 0 8px}
+details{border-bottom:1px solid var(--bd);padding:3px 0}summary{cursor:pointer;font-weight:600;padding:5px 0}
+.f{display:grid;grid-template-columns:1fr 92px;gap:6px;align-items:center;margin:3px 0}.f label{color:var(--mu)}
+input[type=number],select{width:100%;box-sizing:border-box;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:5px;padding:3px 5px;font:inherit}
+#main{position:relative;min-width:0;min-height:0;height:100%}canvas{display:block;width:100%;height:100%;touch-action:none}
+.hud{position:absolute;background:var(--pn);border:1px solid var(--bd);border-radius:8px;padding:8px 10px}
+#kpi{right:10px;top:10px;width:250px;max-height:calc(100% - 90px);overflow:auto}
+#kpi div{display:flex;justify-content:space-between;gap:8px;padding:1px 0}#kpi b{font-weight:600}.ok{color:var(--ok)}.no{color:var(--wr)}
+#bar{left:10px;right:10px;bottom:10px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+#bar label{display:flex;gap:6px;align-items:center;color:var(--mu)}button{background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:5px;padding:4px 9px;cursor:pointer;font:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #3b82f6}
+i.s{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 3px 0 6px}
+#out{left:10px;right:10px;top:10px;bottom:70px;overflow:auto;z-index:5;font-size:12px}#out h2{font:600 14px Georgia,serif;margin:10px 0 4px}#out table{border-collapse:collapse;width:100%}#out td,#out th{border-bottom:1px solid var(--bd);padding:2px 6px;text-align:left;white-space:nowrap}#out p{margin:2px 0}#out .bst td{font-weight:700}
+@media(max-width:820px){body{grid-template-columns:1fr;grid-template-rows:58% 42%}#main{order:-1}#side{border-right:0;border-top:1px solid var(--bd)}#kpi{width:190px;font-size:11px}}
+</style></head><body>
+<div id="side"><h1>Six-way shuttle warehouse</h1></div>
+<div id="main"><div id="kpi" class="hud"></div><div id="out" class="hud" hidden></div>
+<div id="bar" class="hud">
+<label>Speed <input type="range" id="spd" min="1" max="60" value="12"></label>
+<label>Levels shown <input type="range" id="lv" min="1" max="7" value="7"></label>
+<label><input type="checkbox" id="abc" checked>ABC colours</label>
+<span><i class="s" style="background:#f59e0b"></i>A<i class="s" style="background:#2dd4bf"></i>B<i class="s" style="background:#94a3b8"></i>C</span>
+<button id="ob">Brief outputs</button><button id="pz">Pause</button><button id="rs">Defaults</button></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const GR={
+Demand:[['in_rate',40],['out_rate',60],['in_hours',24],['out_hours',16],['out_start_h',8],['required_capacity',4000],['unit_loads_per_sku',6]],
+Building:[['building_x',45],['building_y',30],['height',20],['rack_x_min',5]],
+Rack:[['levels',7],['aisles',3],['lane_cols',19],['faces',2],['phys_depth',6],['pos_pitch',.885],['lane_pitch',1.4],['aisle_width',1.3],['cross_aisle',1.3],['level_pitch',2.25],['first_level',.45],['lift_w',1.5],['lift_d',2]],
+Shuttle:[['n_shuttles',7],['shuttle_v',1.4],['shuttle_a',.5],['turn_s',4],['lane_xfer_s',25],['liftside_xfer_s',25],['battery_h',8],['charge_h',2],['battery_kwh',1.5],['shuttle_mass_kg',260],['shuttle_idle_kw',.02]],
+Lift:[['n_lifts',3],['lift_v',1],['lift_a',.7],['lift_pos_s',1],['chain_xfer_s',7],['shuttle_xfer_s',25],['lift_kw',16],['lift_payload_kg',1800],['pallet_mass_kg',1000],['lift_idle_kw',.3],['lift_regen_eff',0],['lift_move_share',.5],['conveyor_v',.3]],
+Operating:[['abc_sku_share',.2],['abc_flow_share',.8],['init_fill',.6],['warmup_days',1],['sim_days',4],['seed',42]],
+Criteria_and_cost:[['max_util',.85],['max_util_degraded',.95],['max_overrun_min',15],['lift_cost',150],['shuttle_cost',70],['position_cost',.12],['building_cost_m3',.04],['conveyor_cost_m',1.5]]};
+const SEL={transfer_mode:['chain','shuttle'],shuttle_policy:['roaming','dedicated'],orientation:['y','x'],lift_config:['both','front','middle'],bay_layout:['same_side','opposite','corners','corners_rev']};
+const $=s=>document.querySelector(s),P={},DEF={};let tm;const sched=()=>{clearTimeout(tm);tm=setTimeout(build,200)};
+function fld(k,v,o){const w=document.createElement('div');w.className='f';w.innerHTML=`<label for="${k}">${k.replace(/_/g,' ')}</label>`;let e;
+if(o){e=document.createElement('select');o.forEach(x=>e.add(new Option(x,x)));e.value=v}else{e=document.createElement('input');e.type='number';e.step='any';e.value=v}
+e.id=k;P[k]=DEF[k]=v;e.oninput=()=>{P[k]=o?e.value:(parseFloat(e.value)||0);sched()};w.append(e);return w}
+{const d=document.createElement('details');d.open=true;d.innerHTML='<summary>Scenario</summary>';for(const k in SEL)d.append(fld(k,SEL[k][0],SEL[k]));$('#side').append(d)}
+for(const g in GR){const d=document.createElement('details');d.open=g=='Rack'||g=='Lift';d.innerHTML=`<summary>${g.replace(/_/g,' ')}</summary>`;GR[g].forEach(([k,v])=>d.append(fld(k,v)));$('#side').append(d)}
+$('#rs').onclick=()=>{for(const k in DEF){P[k]=DEF[k];$('#'+k).value=DEF[k]}build()};
+let play=true;$('#pz').onclick=e=>{play=!play;e.target.textContent=play?'Pause':'Play'};
+
+const main=$('#main'),R=new THREE.WebGLRenderer({antialias:true,alpha:true});main.prepend(R.domElement);
+const scn=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,600);
+scn.add(new THREE.HemisphereLight(0xffffff,0x778899,.95));const dl=new THREE.DirectionalLight(0xffffff,.65);dl.position.set(30,60,20);scn.add(dl);
+const O={th:-.9,ph:1.0,r:75,t:new THREE.Vector3(22,6,15)};
+function cu(){cam.position.set(O.t.x+O.r*Math.sin(O.ph)*Math.cos(O.th),O.t.y+O.r*Math.cos(O.ph),O.t.z+O.r*Math.sin(O.ph)*Math.sin(O.th));cam.lookAt(O.t)}
+let dr=null;const cv=R.domElement;
+cv.onpointerdown=e=>{dr={x:e.clientX,y:e.clientY,pan:e.button>0||e.shiftKey};cv.setPointerCapture(e.pointerId)};
+cv.onpointerup=()=>dr=null;
+cv.onpointermove=e=>{if(!dr)return;const dx=e.clientX-dr.x,dy=e.clientY-dr.y;dr.x=e.clientX;dr.y=e.clientY;
+if(dr.pan){const k=O.r*.0015,rt=new THREE.Vector3().setFromMatrixColumn(cam.matrix,0);O.t.addScaledVector(rt,-dx*k);O.t.y+=dy*k}
+else{O.th-=dx*.006;O.ph=Math.min(1.5,Math.max(.1,O.ph-dy*.006))}};
+cv.onwheel=e=>{e.preventDefault();O.r=Math.min(250,Math.max(8,O.r*(1+Math.sign(e.deltaY)*.08)))};cv.oncontextmenu=e=>e.preventDefault();
+new ResizeObserver(()=>{const w=main.clientWidth,h=main.clientHeight;R.setPixelRatio(Math.min(2,devicePixelRatio));R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}).observe(main);
+
+let W=new THREE.Group(),AN={},rs=1;
+const rnd=()=>{rs|=0;rs=rs+0x6D2B79F5|0;let t=Math.imul(rs^rs>>>15,1|rs);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const mv=(a,b,d)=>Math.abs(b-a)<=d?b:a+Math.sign(b-a)*d;
+const tt=(d,v,a)=>d>v*v/a?d/v+v/a:2*Math.sqrt(d/a);
+const CL={A:0xf59e0b,B:0x2dd4bf,C:0x94a3b8};
+function lay(g,cfg,nl){const p=g.p,ca=p.cross_aisle,lp=p.lane_pitch,nC=g.nC,h=Math.floor(nC/2);let XA,off,segs,aE;
+if(cfg=='middle'){XA=[h*lp+ca/2];off=i=>(i<h?0:ca)+(i+.5)*lp;segs=[[0,h*lp],[h*lp+ca,nC*lp+ca]];aE=nC*lp+ca}
+else if(cfg=='both'){XA=[ca/2,ca+nC*lp+ca/2];off=i=>ca+(i+.5)*lp;segs=[[ca,ca+nC*lp]];aE=nC*lp+2*ca}
+else{XA=[ca/2];off=i=>ca+(i+.5)*lp;segs=[[ca,ca+nC*lp]];aE=nC*lp+ca}
+const cc=k=>p.rack_x_min+k*g.uw+(g.nF==2?g.dep:0)+p.aisle_width/2,grp=XA.map(()=>[]),L=[];
+for(let i=0;i<nl;i++)grp[i%XA.length].push(i);
+grp.forEach((G,j)=>G.forEach((id,t)=>{const n=G.length,q=m=>Math.min(g.nA-1,Math.round(m*(g.nA-1)/Math.max(1,n-1))),k=q(t);let d=0;for(let m=0;m<t;m++)if(q(m)==k)d++;L[id]={a:XA[j],c:cc(k)+d*(p.lift_w+.3)}}));
+return{XA,off,segs,aE,L}}
+function lab(t,v){const c=document.createElement('canvas');c.width=128;c.height=64;const x=c.getContext('2d');x.fillStyle='rgba(20,24,29,.85)';x.fillRect(0,0,128,64);x.fillStyle='#fff';x.font='bold 34px sans-serif';x.textAlign='center';x.fillText(t,64,46);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c)}));s.position.copy(v);s.scale.set(4,2,1);W.add(s)}
+function build(){
+scn.remove(W);W=new THREE.Group();scn.add(W);const p=P,oy=p.orientation=='y',I=k=>Math.max(1,Math.round(p[k]));
+const nL=I('levels'),nA=I('aisles'),nC=I('lane_cols'),nF=Math.min(2,I('faces')),nD=I('phys_depth'),pp=p.pos_pitch,lp=p.lane_pitch,aw=p.aisle_width,ca=p.cross_aisle;rs=p.seed;
+const X=lay(geo(),p.lift_config,Math.min(12,I('n_lifts')));const dep=nD*pp,uw=nF*dep+aw,cE=p.rack_x_min+nA*uw,aE=X.aE,top=p.first_level+nL*p.level_pitch,H=Math.max(p.height,top);
+const Ab=oy?p.building_y:p.building_x,Cb=oy?p.building_x:p.building_y,hl=l=>p.first_level+l*p.level_pitch;
+const M=(a,c,h)=>new THREE.Vector3(oy?c:a,h,oy?a:c),mat=(c,o=1)=>new THREE.MeshLambertMaterial({color:c,transparent:o<1,opacity:o});
+const bx=(sa,sc,sh,c,o,a,cc,h)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(oy?sc:sa,sh,oy?sa:sc),mat(c,o));m.position.copy(M(a,cc,h));W.add(m);return m};
+const PG=()=>new THREE.BoxGeometry(oy?.85:1.25,1.5,oy?1.25:.85);
+const fits=cE<=Cb+1e-6&&aE<=Ab+1e-6&&top<=p.height;
+const fl=new THREE.Mesh(new THREE.BoxGeometry(p.building_x,.05,p.building_y),mat(0x9aa5b1,.5));fl.position.set(p.building_x/2,-.03,p.building_y/2);W.add(fl);
+const ed=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(p.building_x,p.height,p.building_y)),new THREE.LineBasicMaterial({color:fits?0x64748b:0xe11d48}));ed.position.set(p.building_x/2,p.height/2,p.building_y/2);W.add(ed);
+const cc=k=>p.rack_x_min+k*uw+(nF==2?dep:0)+aw/2,sides=nF==2?[-1,1]:[1],slabs=[];
+for(const sg of X.segs)for(let k=0;k<nA;k++)for(const s of sides)for(let l=0;l<nL;l++){const m=bx(sg[1]-sg[0],dep,.08,0x7b8794,1,(sg[0]+sg[1])/2,cc(k)+s*(aw/2+dep/2),hl(l));m.userData.l=l;slabs.push(m)}
+// pallets
+const N=nL*nA*sides.length*nC*nD,im=new THREE.InstancedMesh(PG(),mat(0xffffff),N),dm=new THREE.Object3D(),sc=[];
+for(let l=0;l<nL;l++)for(let i=0;i<nC;i++)sc.push((i+.5)/nC*.5+(l+.5)/nL*.5);sc.sort((a,b)=>a-b);
+const tA=sc[Math.min(sc.length-1,Math.floor(p.abc_sku_share*sc.length))],tB=sc[Math.floor(sc.length*(.5))];
+let n=0;const le=[],cls=[];
+for(let l=0;l<nL;l++){for(let k=0;k<nA;k++)for(const s of sides)for(let i=0;i<nC;i++){const q=(i+.5)/nC*.5+(l+.5)/nL*.5,c=q<=tA?'A':q<=tB?'B':'C';
+for(let j=0;j<nD;j++){if(rnd()>=p.init_fill)continue;dm.position.copy(M(X.off(i),cc(k)+s*(aw/2+(j+.5)*pp),hl(l)+.85));dm.updateMatrix();im.setMatrixAt(n,dm.matrix);cls[n++]=c}}le.push(n)}
+im.count=n;for(let x=0;x<n;x++)im.setColorAt(x,new THREE.Color(CL[cls[x]]));W.add(im);
+// lifts
+const nl=Math.min(12,I('n_lifts')),lcs=X.L;
+const lifts=lcs.map(({a:la,c},i)=>{bx(p.lift_d,p.lift_w,top+.5,0x3b82f6,.3,la,c,(top+.5)/2);lab('L'+(i+1),M(la,c,top+1.5));const cab=bx(p.lift_d*.85,p.lift_w*.85,.4,0x1d4ed8,1,la,c,0),pl=new THREE.Mesh(PG(),mat(0xd9a441));W.add(pl);
+return{a:la,c,cab,pl,h:rnd()*top,st:3,w:0,lvl:0}});
+// bays and conveyors
+const cb=p.rack_x_min/2,cf=Cb-2,L={same_side:[[4,cb],[9,cb]],opposite:[[Ab/2,cb],[Ab/2,cf]],corners:[[3,cb],[Ab-3,cf]],corners_rev:[[Ab-3,cb],[3,cf]]}[p.bay_layout];
+let cl=0;const lo=Math.min(...lcs.map(q=>q.c)),hi=Math.max(...lcs.map(q=>q.c)),LA=[...new Set(lcs.map(q=>q.a))];
+L.forEach(([a,c],i)=>{bx(3,2,.5,i?0xe11d48:0x16a34a,1,a,c,.25);lab(i?'OUT':'IN',M(a,c,3));const c0=Math.min(c,lo),c9=Math.max(c,hi);LA.forEach(la=>{const x=Math.abs(a-la);bx(x,.6,.25,0x64748b,1,(a+la)/2,c,.15);bx(.6,c9-c0,.25,0x64748b,1,la,(c0+c9)/2,.15);cl+=x+c9-c0})});
+// shuttles
+const ns=Math.min(60,I('n_shuttles')),ded=p.shuttle_policy=='dedicated',sh=[];
+const job=s=>{s.out=rnd()<.5;s.carry=!s.out;s.ta=X.off(Math.floor(rnd()*nC));s.home=LA.reduce((b,x)=>Math.abs(x-s.ta)<Math.abs(b-s.ta)?x:b);const sd=nF==2&&rnd()<.5?-1:1;s.tc=sd*(aw/2+(Math.floor(rnd()*nD)+.5)*pp);if(!ded){if(rnd()<.5){s.lvl=Math.floor(rnd()*nL);s.ai=Math.floor(rnd()*nA)}}};
+for(let i=0;i<ns;i++){const s={m:bx(.95,.95,.2,0xf97316,1,ca,0,0),cp:new THREE.Mesh(PG(),mat(0xd9a441)),ai:i%nA,lvl:ded?i%nL:Math.floor(rnd()*nL),a:LA[0],co:0,st:0,w:rnd()*8};W.add(s.cp);job(s);sh.push(s)}
+AN={p,oy,M,hl,cc,ca,nL,top,lifts,sh,job,slabs,im,le,cls,n,xm:p.transfer_mode=='chain'?p.chain_xfer_s:p.shuttle_xfer_s};
+$('#lv').max=nL;$('#lv').value=nL;vis();col();O.t.set(p.building_x/2,H/3,p.building_y/2);
+const T0=Tof(geo(),lcs,L,X.off);kpi({dm:T0.dm,cr:T0.cr,nL,nA,nC,nF,nD,dep,top,fits,cE,aE,Cb,Ab,nl,ns,cl,ded,N});}
+function vis(){const L=+$('#lv').value;AN.im.count=L>=AN.nL?AN.n:AN.le[L-1];AN.slabs.forEach(s=>s.visible=s.userData.l<L)}
+function col(){const on=$('#abc').checked,im=AN.im;for(let x=0;x<AN.n;x++)im.setColorAt(x,new THREE.Color(on?CL[AN.cls[x]]:0xc9a46a));im.instanceColor.needsUpdate=true}
+$('#lv').oninput=vis;$('#abc').onchange=col;
+function kpi(g){const p=P,pk=p.in_rate+p.out_rate,dm=p.first_level+g.nL*p.level_pitch/2,tl=tt(dm,p.lift_v,p.lift_a),xm=AN.xm;
+const lc=2*tl+2*p.lift_pos_s+p.chain_xfer_s+xm,lr=3600/lc,lu=pk/(g.nl*lr),lud=g.nl>1?pk/((g.nl-1)*lr):9;
+const sh=p.shuttle_policy=='roaming'?(1-1/g.nL)*(p.shuttle_xfer_s+tl):0,
+sc=p.lane_xfer_s+p.liftside_xfer_s+2*tt(g.dm,p.shuttle_v,p.shuttle_a)+2*tt(g.dep/2+p.aisle_width/2,p.shuttle_v,p.shuttle_a)+2*p.turn_s+sh+2*tt(g.cr,p.shuttle_v,p.shuttle_a),sr=3600/sc,su=pk/(g.ns*sr),sud=g.ns>1?pk/((g.ns-1)*sr):9;
+const mf=Math.min(1,pk/g.nl*2*tl/3600),lkw=g.nl*(p.lift_kw*p.lift_move_share*mf+p.lift_idle_kw*(1-mf)),skw=g.ns*(p.battery_kwh/p.battery_h*Math.min(1,su)+p.shuttle_idle_kw*(1-Math.min(1,su)));
+const kd=(lkw+skw)*24,pd=p.in_rate*p.in_hours,cap=g.N,
+cost=g.nl*p.lift_cost+g.ns*p.shuttle_cost+cap*p.position_cost+p.building_x*p.building_y*p.height*p.building_cost_m3+g.cl*p.conveyor_cost_m;
+const pay=p.pallet_mass_kg+(p.transfer_mode=='shuttle'?p.shuttle_mass_kg:0),f=(x,d=1)=>(+x).toFixed(d);
+const rows=[['Capacity',cap+' pallets',cap>=p.required_capacity],['Channels (SKUs)',g.nL*g.nA*g.nC*g.nF,null],['Fits building',g.fits?'yes':'no',g.fits],
+['Rack footprint',f(g.oy?g.cE:g.aE)+' × '+f(g.oy?g.aE:g.cE)+' m',null],['Rack height',f(g.top)+' m',g.top<=p.height],
+['Peak demand',pk+' pal/h',null],['Lift cycle',f(lc,0)+' s · '+f(lr,0)+'/h',null],['Lift util.',f(lu*100,0)+'%',lu<=p.max_util],['Lift util., 1 down',lud>5?'n/a':f(lud*100,0)+'%',lud<=p.max_util_degraded],
+['Lift payload',pay+' kg',pay<=p.lift_payload_kg],['Shuttle cycle',f(sc,0)+' s · '+f(sr,0)+'/h',null],['Shuttle util.',f(su*100,0)+'%',su<=p.max_util],['Shuttle util., 1 down',sud>5?'n/a':f(sud*100,0)+'%',sud<=p.max_util_degraded],
+['Fleet with charging',Math.ceil(g.ns*(p.battery_h+p.charge_h)/p.battery_h)+' shuttles',null],['Dedicated cover',g.ded?(g.ns>=g.nL?'all levels':'levels missing'):'roaming',g.ded?g.ns>=g.nL:null],
+['Energy',f(kd,0)+' kWh/day · '+f(kd/pd,2)+'/pal',null],['Conveyors',f(g.cl,0)+' m',null],['Cost',f(cost/1000,2)+' M€',null]];
+LAST={lc,lr,lu,lud,sc,sr,su,sud,kd,pd,mf,lkw,skw,pk,tl,g};$('#kpi').innerHTML='<b>Results</b>'+rows.map(r=>`<div><span>${r[0]}</span><b class="${r[2]===null?'':r[2]?'ok':'no'}">${r[1]}</b></div>`).join('')}
+let LAST={};const LAY=['same_side','opposite','corners','corners_rev'],f=(x,d=0)=>(+x).toFixed(d);
+function geo(){const p=P,oy=p.orientation=='y',I=k=>Math.max(1,Math.round(p[k])),nL=I('levels'),nA=I('aisles'),nC=I('lane_cols'),nF=Math.min(2,I('faces')),nD=I('phys_depth'),dep=nD*p.pos_pitch,uw=nF*dep+p.aisle_width;return{p,oy,nL,nA,nC,nF,nD,dep,uw,cE:p.rack_x_min+nA*uw,Ab:oy?p.building_y:p.building_x,Cb:oy?p.building_x:p.building_y,nl:Math.min(12,I('n_lifts')),ns:Math.min(60,I('n_shuttles'))}}
+function frg(g,i,n){const p=g.p,q=m=>Math.min(g.nA-1,Math.round(m*(g.nA-1)/Math.max(1,n-1))),k=q(i);let d=0;for(let m=0;m<i;m++)if(q(m)==k)d++;return p.rack_x_min+k*g.uw+(g.nF==2?g.dep:0)+p.aisle_width/2+d*(p.lift_w+.3)}
+function liftC(g,cfg,nl){const p=g.p,c1=p.rack_x_min+p.lift_w/2,c2=Math.max(c1,g.cE-p.lift_w/2),m=(c1+c2)/2,r=[];for(let i=0;i<nl;i++)r.push(cfg=='front'?frg(g,i,nl):cfg=='middle'?m+(i-(nl-1)/2)*(p.lift_w+.3):nl==1?m:c1+i*(c2-c1)/(nl-1));return r}
+function bayP(g,l){const{p,Ab,Cb}=g,cb=p.rack_x_min/2,cf=Cb-2;return{same_side:[[4,cb],[9,cb]],opposite:[[Ab/2,cb],[Ab/2,cf]],corners:[[3,cb],[Ab-3,cf]],corners_rev:[[Ab-3,cb],[3,cf]]}[l]}
+function Tof(g,lcs,B,off){const{p,nL,nA,nC,nF,dep,uw}=g,cv=B.map(([a,c])=>Math.min(...lcs.map(l=>Math.abs(a-l.a)+Math.abs(c-l.c)))),conv=(cv[0]*p.in_rate+cv[1]*p.out_rate)/(p.in_rate+p.out_rate),XA=[...new Set(lcs.map(l=>l.a))],dm=[...Array(nC)].reduce((s,_,i)=>s+Math.min(...XA.map(x=>Math.abs(off(i)-x))),0)/nC;
+let cr=0;for(const l of lcs)for(let k=0;k<nA;k++)cr+=Math.abs(l.c-(p.rack_x_min+k*uw+(nF==2?dep:0)+p.aisle_width/2));cr/=lcs.length*nA;
+const tl=tt(p.first_level+nL*p.level_pitch/2,p.lift_v,p.lift_a),xm=p.transfer_mode=='chain'?p.chain_xfer_s:p.shuttle_xfer_s,lc=2*tl+2*p.lift_pos_s+p.chain_xfer_s+xm,sh=p.shuttle_policy=='roaming'?(1-1/nL)*(p.shuttle_xfer_s+tl):0,
+sc=p.lane_xfer_s+p.liftside_xfer_s+2*tt(dm,p.shuttle_v,p.shuttle_a)+2*tt(dep/2+p.aisle_width/2,p.shuttle_v,p.shuttle_a)+2*p.turn_s+sh+2*tt(cr,p.shuttle_v,p.shuttle_a);
+return{conv,cr,dm,sc,T:conv/p.conveyor_v+lc/2+sc/2}}
+function report(){const g=geo(),p=P,L=LAST,pk=L.pk,{nL,nA,nC,nF,nD,nl,ns}=g,cap=nL*nA*nC*nF*nD;let h='';
+h+=`<h2>A. Warehouse design</h2><p>${nL} levels · ${nA} aisles · ${nC} lane columns · ${nF} faces · ${nD}-deep channels · aisles along ${p.orientation} · ${cap} pallets (need ${p.required_capacity}) · ${nl} lifts (${p.lift_config}) · ${ns} shuttles (${p.shuttle_policy}) · ${p.transfer_mode} transfer</p>`;
+h+=`<h2>B. Best bay layout and lift location (lead-time index = conveyor + lift ride + shuttle, seconds)</h2><table><tr><th>Bay layout</th><th>Lifts</th><th>Lifts (along aisle / across, m)</th><th>Conveyor (m)</th><th>Shuttle cycle (s)</th><th>Index (s)</th><th>Index, worst lift down (s)</th><th>Shuttle util.</th></tr>`;
+for(const lay of LAY){const B=bayP(g,lay),c=SEL.lift_config.map(cfg=>{const X=lay(g,cfg,nl),lc=X.L,a=Tof(g,lc,B,X.off);let dg=a.T;if(nl>1)lc.forEach((_,i)=>{dg=Math.max(dg,Tof(g,lc.filter((_,j)=>j!=i),B,X.off).T)});return{cfg,lc,...a,dg,su:pk/(ns*3600/a.sc)}}),b=Math.min(...c.map(x=>x.T));
+c.forEach(x=>h+=`<tr class="${x.T==b?'bst':''}"><td>${lay}</td><td>${x.cfg}${x.T==b?' ★':''}</td><td>${x.lc.map(v=>f(v.a,0)+'/'+f(v.c,0)).join(', ')}</td><td>${f(x.conv,1)}</td><td>${f(x.sc)}</td><td>${f(x.T)}</td><td>${f(x.dg)}</td><td>${f(x.su*100)}%</td></tr>`)}
+h+='</table><p>★ = lowest index for that bay layout. Lift utilisation does not depend on layout; layout changes conveyor and shuttle cross-aisle travel.</p>';
+const scR=L.sc+(p.shuttle_policy=='roaming'?0:(1-1/nL)*(p.shuttle_xfer_s+L.tl)),scD=scR-(1-1/nL)*(p.shuttle_xfer_s+L.tl),need=c=>Math.ceil(pk/(3600/c*p.max_util));
+h+=`<h2>C. Where the technology makes sense</h2>`+
+`<p><b>a) ABC:</b> top ${f(p.abc_sku_share*100)}% of SKUs carry ${f(p.abc_flow_share*100)}% of flow. Keep them on low levels near the lifts (orange). Lift ride to level 2 is ${f(2*tt(p.first_level+p.level_pitch,p.lift_v,p.lift_a))} s round trip against ${f(2*L.tl)} s on average.</p>`+
+`<p><b>b) Shuttles between floors:</b> dedicated cycle ${f(scD)} s, needs at least ${Math.max(nL,need(scD))} shuttles (one per level). Roaming cycle ${f(scR)} s, needs ${need(scR)} shuttles at ${f(p.max_util*100)}% utilisation.</p>`+
+`<p><b>c) Resilience:</b> one lift down gives ${L.lud>5?'n/a':f(L.lud*100)+'%'} lift utilisation (limit ${f(p.max_util_degraded*100)}%). One shuttle down gives ${L.sud>5?'n/a':f(L.sud*100)+'%'}.</p>`+
+`<p><b>d) Energy:</b> lifts average ${f(L.lkw,1)} kW of ${f(nl*p.lift_kw)} kW installed. Shuttles average ${f(L.skw,2)} kW. Total ${f(L.kd)} kWh/day, ${f(L.kd/L.pd,2)} kWh per pallet. Shuttle battery ${p.battery_h} h, charge ${p.charge_h} h, so ${Math.ceil(ns*(p.battery_h+p.charge_h)/p.battery_h)} shuttles for 24 h operation.</p>`+
+`<p><b>e) Throughput:</b> demand ${pk} pal/h. Lift capacity ${f(nl*L.lr)} pal/h, shuttle capacity ${f(ns*L.sr)} pal/h. Transfers are ${f((p.lane_xfer_s+p.liftside_xfer_s)/L.sc*100)}% of the shuttle cycle.</p>`+
+`<p><b>f) Expansion:</b> +1 shuttle gives ${f(pk/((ns+1)*L.sr)*100)}% utilisation. +1 lift gives ${f(pk/((nl+1)*L.lr)*100)}%. Each extra lane column adds ${nL*nA*nF*nD} pallets. Each extra level adds ${nA*nC*nF*nD}.</p>`;
+$('#out').innerHTML=h}
+$('#ob').onclick=()=>{const o=$('#out');o.hidden=!o.hidden;if(!o.hidden)report()};
+$('#side').addEventListener('input',()=>setTimeout(()=>{if(!$('#out').hidden)report()},450));
+const mat0=new THREE.Clock();
+function loop(){requestAnimationFrame(loop);const d=Math.min(.05,mat0.getDelta());cu();if(play&&AN.sh){const dt=d*$('#spd').value,A=AN,p=A.p;
+for(const s of A.sh){const v=p.shuttle_v*dt;switch(s.st){
+case 0:if((s.w-=dt)<=0)s.st=1;break;
+case 1:s.a=mv(s.a,s.ta,v);if(s.a==s.ta){s.st=2;s.w=p.turn_s}break;
+case 2:if((s.w-=dt)<=0)s.st=3;break;
+case 3:s.co=mv(s.co,s.tc,v);if(s.co==s.tc){s.st=4;s.w=p.lane_xfer_s}break;
+case 4:if((s.w-=dt)<=0){s.carry=!s.carry;s.st=5}break;
+case 5:s.co=mv(s.co,0,v);if(!s.co){s.st=6;s.w=p.turn_s}break;
+case 6:if((s.w-=dt)<=0)s.st=7;break;
+case 7:s.a=mv(s.a,s.home,v);if(s.a==s.home){A.job(s);s.st=0;s.w=p.liftside_xfer_s}}
+const q=A.M(s.a,A.cc(s.ai)+s.co,A.hl(s.lvl)+.2);s.m.position.copy(q);s.cp.visible=s.carry;s.cp.position.set(q.x,q.y+.8,q.z)}
+for(const l of A.lifts){const lv=p.lift_v*dt;
+if(l.st==0){if((l.w-=dt)<=0)l.st=1}else if(l.st==1){l.h=mv(l.h,A.hl(l.lvl),lv);if(l.h==A.hl(l.lvl)){l.st=2;l.w=A.xm}}
+else if(l.st==2){if((l.w-=dt)<=0)l.st=3}else{l.h=mv(l.h,0,lv);if(!l.h){l.st=0;l.w=p.chain_xfer_s;l.lvl=Math.floor(rnd()*A.nL)}}
+const q=A.M(l.a,l.c,l.h+.25);l.cab.position.copy(q);l.pl.visible=l.st<2;l.pl.position.set(q.x,q.y+1,q.z)}}
+R.render(scn,cam)}
+build();loop();
+</script></body></html>
